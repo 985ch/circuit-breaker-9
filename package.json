@@ -1,0 +1,40 @@
+{
+  "name": "circuit-breaker-9",
+  "version": "1.0.0",
+  "description": "Customizable circuit breakers by triggers",
+  "keywords": [
+    "circuit",
+    "breaker"
+  ],
+  "dependencies": {
+    "lodash": "^4.17.11"
+  },
+  "devDependencies": {
+    "eslint": "^5.13.0",
+    "eslint-config-egg": "^7.1.0",
+    "mocha": "^6.1.4",
+    "istanbul": "^0.4.5"
+  },
+  "engines": {
+    "node": ">=8.0.0"
+  },
+  "scripts": {
+    "test": "npm run lint -- --fix && npm run test-local",
+    "test-local": "mocha test",
+    "cov": "istanbul cover ./node_modules/mocha/bin/_mocha --report lcovonly -- -R spec",
+    "lint": "eslint ."
+  },
+  "files": [
+    "index.js"
+  ],
+  "ci": {
+    "version": "8, 10"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/985ch/circuit-breaker-9.git"
+  },
+  "homepage": "https://github.com/985ch/circuit-breaker-9#readme",
+  "author": "985ch",
+  "license": "MIT"
+}
