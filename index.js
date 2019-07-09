@@ -5,7 +5,7 @@ const _ = require('lodash');
 const defaultConfig = {
   duration: 60000,
   maxHit: 1,
-  handle: () => { throw new Error('Circuit breaker is triggered'); },
+  onBreak() { throw new Error('Circuit breaker is triggered'); },
 };
 
 class Breaker {
@@ -20,77 +20,108 @@ class Breaker {
     };
   }
   async run(func, options = {}) {
-    const handle = options.handle || this.config.handle;
+    const onBreak = options.onBreak || this.config.onBreak;
+    const onState = options.onState || this.config.onState;
 
     const now = Date.now();
     if (now < this.state.breakTime) {
-      return await handle();
+      return await onBreak();
     }
-    const { state, data, err } = await this.trigger(func, this.state, this.config);
-    options.state = state;
-    if (err && this.state.hit >= this.config.maxHit) {
+    const { isHit, data, err } = await this.trigger(func, options, this.state, onState);
+    if (isHit && this.state.hit >= this.config.maxHit) {
       this.break();
-      return await handle();
+      return await onBreak();
     }
     if (err) throw err;
     return data;
   }
-  break(now) {
-    now = now || Date.now();
-    this.state.breakTime = now + this.config.duration;
+  break(duration) {
+    duration = duration || this.config.duration;
+    this.state.breakTime = Date.now() + duration;
   }
   restore() {
+    this.state.hit = 0;
     this.state.breakTime = 0;
   }
   // time out trigger
-  static Timeout(func, state, config) {
-    const start = Date.now();
-    let finish = false;
-    return new Promise(function(resolve) {
-      const timer = setTimeout(function() {
-        if (!finish) {
-          finish = true;
+  static Timeout(timeout) {
+    return (func, options, state, onState) => {
+      const _timeout = options.timeout || timeout;
+      const start = Date.now();
+      let finish = false;
+
+      const setState = () => {
+        finish = true;
+        const cost = Date.now() - start;
+        const isHit = cost >= _timeout;
+        if (isHit) {
           state.hit++;
-          resolve({
-            state: { cost: Date.now() - start },
-            err: new Error('timeout:' + config.timeout),
+        } else {
+          state.hit = 0;
+        }
+
+        if (onState) {
+          onState(isHit, {
+            hit: state.hit,
+            cost,
           });
         }
-      }, config.timeout || 60000);
+        return isHit;
+      };
 
-      func().then(data => {
-        if (!finish) {
-          finish = true;
-          clearTimeout(timer);
-          state.hit = 0;
-          resolve({ state: { cost: Date.now() - start }, data });
-        }
-      }).catch(err => {
-        if (!finish) {
-          finish = true;
-          clearTimeout(timer);
-          resolve({ state: { cost: Date.now() - start }, err });
-        } else {
-          throw err;
-        }
+      return new Promise(function(resolve) {
+        const timer = setTimeout(function() {
+          if (!finish) {
+            resolve({ isHit: setState(), err: new Error('timeout:' + _timeout) });
+          }
+        }, _timeout || 60000);
+
+        func().then(data => {
+          if (!finish) {
+            clearTimeout(timer);
+            resolve({ isHit: setState(), data });
+          }
+        }).catch(err => {
+          if (!finish) {
+            finish = true;
+            clearTimeout(timer);
+            resolve({ isHit: false, err });
+          } else {
+            throw err;
+          }
+        });
       });
-    });
+    };
   }
   // connection trigger
-  static async Connection(func, bState, config) {
-    bState.hit++;
-    const state = { connections: bState.hit };
-    if (state.hit > config.maxHit) {
-      return { state, err: new Error('Too many connections:' + bState.hit) };
-    }
-    try {
-      const data = await func();
-      bState.hit--;
-      return { state, data };
-    } catch (err) {
-      bState.hit--;
-      return { state, err };
-    }
+  static Connection(maxConn) {
+    return async (func, options, bState, onState) => {
+      bState.connections = (bState.connections || 0) + 1;
+      let isHit = false;
+      if (bState.connections > maxConn) {
+        isHit = true;
+        bState.hit++;
+        bState.connections--;
+        return { isHit, err: new Error('too many connections') };
+      }
+      bState.hit = 0;
+
+      const state = {
+        hit: bState.hit,
+        connections: bState.connections,
+      };
+      try {
+        const data = await func();
+        if (onState) {
+          onState(isHit, state);
+        }
+        bState.connections--;
+        return { isHit, data };
+      } catch (err) {
+        bState.connections--;
+        return { isHit, err };
+      }
+    };
   }
 }
 

@@ -4,7 +4,8 @@
   "description": "Customizable circuit breakers by triggers",
   "keywords": [
     "circuit",
-    "breaker"
+    "breaker",
+    "customizable"
   ],
   "dependencies": {
     "lodash": "^4.17.11"
